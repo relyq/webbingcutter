@@ -27,9 +27,10 @@ AccelStepper stepper(AccelStepper::DRIVER, 2, 3);  // step, dir
 
 Servo servo;
 
-uint16_t getInput();
+uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
+                  const uint8_t lcdCol, const uint16_t maxInput);
 void servoCut();
-void runJob(uint16_t length);
+void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips, uint16_t length);
 uint16_t mmToSteps(uint16_t millimetres);
 
 void setup() {
@@ -49,29 +50,37 @@ void setup() {
 
   keypad.setDebounceTime(100);
 
-  lcd.print("WCUT V0.1");
-  Serial.println("WCUT V0.1");
+  lcd.print("WCUT V0.2");
+  lcd.setCursor(0, 1);
+  lcd.print("Starting...");
+  Serial.println("WCUT V0.2");
+  Serial.println("Starting...");
   delay(250);
   lcd.clear();
-  lcd.print("Starting...");
-  Serial.println("Starting...");
 }
 
 void loop() {
   lcd.clear();
+
+  lcd.print("Strips:");
+  lcd.setCursor(0, 1);
   lcd.print("Length:");
+  uint16_t strips = getInput(&lcd, 7, 0, 255);
+  uint16_t length = getInput(&lcd, 7, 1, 10000);
 
-  uint16_t input = getInput();
-
-  runJob(input);
+  runJob(&stepper, &lcd, strips, length);
 
   lcd.clear();
   delay(500);
 }
 
-uint16_t getInput() {
+uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
+                  const uint8_t lcdCol, const uint16_t maxInput) {
   char key = keypad.getKey();
+  uint8_t charsPrinted;
   uint16_t input = 0;
+
+  lcd->setCursor(lcdRow, lcdCol);
 
   while (key != '#') {
     switch (key) {
@@ -88,17 +97,22 @@ uint16_t getInput() {
       case '7':
       case '8':
       case '9':
-        if (!(input * 10 + (key - '0') > 10000)) {
+        if (!(input * 10 + (key - '0') > maxInput)) {
           input = input * 10 + (key - '0');
-          lcd.print(key);
+          lcd->print(key);
+          charsPrinted++;
           Serial.println(input);
         }
         break;
 
       case '*':
         input = 0;
-        lcd.clear();
-        lcd.print("Length:");
+        for (uint8_t i = 0; i < charsPrinted; i++) {
+          lcd->setCursor(lcdRow + i, lcdCol);
+          lcd->print(' ');
+        }
+        lcd->setCursor(lcdRow, lcdCol);
+        charsPrinted = 0;
         Serial.println("");
         break;
     }
@@ -111,7 +125,7 @@ uint16_t getInput() {
 void servoCut() {
   for (uint8_t pos = 0; pos <= 180; pos++) {
     servo.write(pos);
-    delay(30);
+    delay(15);
   }
 
   while (digitalRead(servoEndstop)) {
@@ -119,14 +133,24 @@ void servoCut() {
   servo.write(0);
 }
 
-void runJob(uint16_t length) {
-  stepper.move(mmToSteps(length));
+void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips, uint16_t length) {
+  for (uint8_t i = 0; i < strips; i++) {
+    lcd->clear();
+    lcd->setCursor(0, 0);
+    lcd->print(i+1);
+    lcd->print("/");
+    lcd->print(strips);
 
-  while (stepper.distanceToGo() != 0) {
-    stepper.run();
+    stepper->move(mmToSteps(length));
+
+    while (stepper->distanceToGo() != 0) {
+      stepper->run();
+    }
+
+    servoCut();
+
+    delay(500);
   }
-
-  servoCut();
 }
 
 uint16_t mmToSteps(uint16_t millimetres) {
