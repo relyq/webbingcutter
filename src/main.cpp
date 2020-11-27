@@ -31,7 +31,7 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
                   const uint8_t lcdCol, const uint16_t maxInput);
 void servoCut();
 void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips, uint16_t length);
-uint16_t mmToSteps(uint16_t millimetres);
+uint16_t mmToSteps(uint16_t millimeters);
 
 void setup() {
   Serial.begin(9600);
@@ -153,11 +153,11 @@ void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips, uint16_t 
   }
 }
 
-uint16_t mmToSteps(uint16_t millimetres) {
+uint16_t mmToSteps(uint16_t millimeters) {
   const uint16_t gearDiameterMM = 50;
   const uint8_t motorStepsPerRevolution = 200;
 
   const float stepsPerMM = motorStepsPerRevolution / (PI * gearDiameterMM);
 
-  return stepsPerMM * millimetres;
+  return stepsPerMM * millimeters;
 }
