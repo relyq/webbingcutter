@@ -4,6 +4,21 @@
 #include <LiquidCrystal.h>
 #include <Servo.h>
 
+#define DEBUG
+
+#ifdef DEBUG
+#define DEBUG_BEGIN(x) Serial.begin(x)
+#define DEBUG_PRINT(x) Serial.print(x)
+#define DEBUG_PRINTDEC(x) Serial.print(x, DEC)
+#define DEBUG_PRINTLN(x) Serial.println(x)
+#else
+#define DEBUG_BEGIN(x)
+#define DEBUG_PRINT(x)
+#define DEBUG_PRINTDEC(x)
+#define DEBUG_PRINTLN(x)
+#define DEBUG_READ()
+#endif
+
 const byte ROWS = 4;
 const byte COLS = 4;
 
@@ -14,20 +29,13 @@ char KPKeys[ROWS][COLS] = {{'1', '2', '3', 'A'},
 byte rowPins[ROWS] = {11, 10, 9, 8};
 byte colPins[COLS] = {7, 6, 5, 4};
 
-enum jobNumber {
-  A = 65,  // ascii
-  B,
-  C,
-  D
-};
-
-jobNumber selectedJob = A;
-
-// uint8_t selectedJob = 'A';
+const uint8_t totalJobs = 4;
+uint8_t selectedJob = 0;
 
 struct stripJob {
-  uint16_t strips;
-  uint16_t length;
+  char id;
+  uint16_t strips = 0;
+  uint16_t length = 0;
 };
 
 const uint8_t servoPin = 12;
@@ -45,14 +53,13 @@ Servo servo;
 
 uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
                   const uint8_t lcdCol, const uint16_t maxInput);
-void servoCut();
-void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips,
-            uint16_t length);
+void servoCut(Servo* servo);
+void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
+            stripJob job);
 uint16_t mmToSteps(uint16_t millimeters);
-void changeSelectedJob(char job);
 
 void setup() {
-  Serial.begin(9600);
+  DEBUG_BEGIN(9600);
 
   lcd.begin(16, 2);
 
@@ -71,17 +78,23 @@ void setup() {
   lcd.print("WCUT V0.2");
   lcd.setCursor(0, 1);
   lcd.print("Starting...");
-  Serial.println("WCUT V0.2");
-  Serial.println("Starting...");
+  DEBUG_PRINTLN("WCUT V0.2");
+  DEBUG_PRINTLN("Starting...");
+
   delay(250);
   lcd.clear();
 }
 
 void loop() {
+  static stripJob jobs[totalJobs];
+  for (uint8_t i = 0; i < totalJobs; i++) {
+    jobs[i].id = 'A' + i;
+  }
+
   lcd.clear();
 
   lcd.setCursor(15, 0);
-  lcd.print((char)selectedJob);
+  lcd.print(jobs[selectedJob].id);
 
   // lcd.cursor();
   lcd.blink();
@@ -90,21 +103,44 @@ void loop() {
   lcd.print("Strips:");
   lcd.setCursor(0, 1);
   lcd.print("Length:");
+  if (jobs[selectedJob].strips != 0 && jobs[selectedJob].length != 0) {
+    lcd.setCursor(7, 0);
+    lcd.print(jobs[selectedJob].strips);
+    lcd.setCursor(7, 1);
+    lcd.print(jobs[selectedJob].length);
+  }
+
   uint16_t strips = getInput(&lcd, 7, 0, 255);
   if (strips == 0xffff) return;
+  jobs[selectedJob].strips = strips;
+  lcd.setCursor(7, 0);
+  lcd.print(jobs[selectedJob].strips);
+
   uint16_t length = getInput(&lcd, 7, 1, 10000);
   if (length == 0xffff) return;
+  jobs[selectedJob].length = length;
+  lcd.setCursor(7, 1);
+  lcd.print(jobs[selectedJob].length);
+
+  if (selectedJob != totalJobs - 1) {
+    selectedJob++;
+    return;
+  }
 
   // lcd.noCursor();
   lcd.noBlink();
 
-  runJob(&stepper, &lcd, strips, length);
+  if (getInput(&lcd, 16, 2, 0) == 0xffff) return;
 
+  for (uint8_t i = 0; i < totalJobs; i++) {
+    runJob(&lcd, &stepper, &servo, jobs[i]);
+  }
+
+  selectedJob = 0;
   lcd.clear();
-  delay(500);
+  lcd.print("Done.");
+  delay(1000);
 }
-
-void changeSelectedJob(char job) { selectedJob = (jobNumber)job; }
 
 uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
                   const uint8_t lcdCol, const uint16_t maxInput) {
@@ -119,11 +155,26 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
       case NO_KEY:
         break;
       case 'A':
+        if (selectedJob != 0) {
+          selectedJob = 0;
+          return 0xffff;
+        }
+        break;
       case 'B':
+        if (selectedJob != 1) {
+          selectedJob = 1;
+          return 0xffff;
+        }
+        break;
       case 'C':
+        if (selectedJob != 2) {
+          selectedJob = 2;
+          return 0xffff;
+        }
+        break;
       case 'D':
-        if (key != selectedJob) {
-          changeSelectedJob(key);
+        if (selectedJob != 3) {
+          selectedJob = 3;
           return 0xffff;
         }
         break;
@@ -137,12 +188,12 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
       case '7':
       case '8':
       case '9':
-        if (!(input * 10 + (key - '0') > maxInput) &&
-            !((input * 10 + (key - '0')) == 0)) {
+        if (!(input * 10 + (key - '0') > maxInput) && charsPrinted < 5) {
           input = input * 10 + (key - '0');
           lcd->print(key);
           charsPrinted++;
-          Serial.println(input);
+          DEBUG_PRINTLN("input: ");
+          DEBUG_PRINTLN(input);
         }
         break;
       case '*':
@@ -156,43 +207,57 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
           }
           lcd->setCursor(lcdRow, lcdCol);
           charsPrinted = 0;
-          Serial.println("");
+          DEBUG_PRINTLN("");
         }
         break;
     }
     key = keypad.getKey();
+#ifdef DEBUG
+    if (Serial.available() > 0) {
+      Serial.readBytes(&key, 1);
+    }
+#endif
   }
 
   return input;
 }
 
-void servoCut() {
+void servoCut(Servo* servo) {
   for (uint8_t pos = 0; pos <= 180; pos++) {
-    servo.write(pos);
+    servo->write(pos);
     delay(15);
   }
 
   while (digitalRead(servoEndstop)) {
   }
-  servo.write(0);
+  servo->write(0);
 }
 
-void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips,
-            uint16_t length) {
-  for (uint8_t i = 0; i < strips; i++) {
-    lcd->clear();
-    lcd->setCursor(0, 0);
-    lcd->print(i + 1);
-    lcd->print("/");
-    lcd->print(strips);
+void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
+            stripJob job) {
+  if (!job.strips || !job.length) return;
 
-    stepper->move(mmToSteps(length));
+  for (uint8_t i = 0; i < job.strips; i++) {
+    lcd->clear();
+    lcd->setCursor(15, 0);
+    lcd->print(job.id);
+
+    lcd->setCursor(0, 0);
+    lcd->print(job.length);
+    lcd->print("mm");
+
+    lcd->setCursor(0, 1);
+    lcd->print(i + 1);
+    lcd->print('/');
+    lcd->print(job.strips);
+
+    stepper->move(mmToSteps(job.length));
 
     while (stepper->distanceToGo() != 0) {
       stepper->run();
     }
 
-    servoCut();
+    servoCut(servo);
 
     delay(500);
   }
