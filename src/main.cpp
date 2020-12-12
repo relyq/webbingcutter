@@ -14,6 +14,22 @@ char KPKeys[ROWS][COLS] = {{'1', '2', '3', 'A'},
 byte rowPins[ROWS] = {11, 10, 9, 8};
 byte colPins[COLS] = {7, 6, 5, 4};
 
+enum jobNumber {
+  A = 65,  // ascii
+  B,
+  C,
+  D
+};
+
+jobNumber selectedJob = A;
+
+// uint8_t selectedJob = 'A';
+
+struct stripJob {
+  uint16_t strips;
+  uint16_t length;
+};
+
 const uint8_t servoPin = 12;
 const uint8_t servoEndstop = 13;
 
@@ -30,8 +46,10 @@ Servo servo;
 uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
                   const uint8_t lcdCol, const uint16_t maxInput);
 void servoCut();
-void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips, uint16_t length);
+void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips,
+            uint16_t length);
 uint16_t mmToSteps(uint16_t millimeters);
+void changeSelectedJob(char job);
 
 void setup() {
   Serial.begin(9600);
@@ -62,11 +80,23 @@ void setup() {
 void loop() {
   lcd.clear();
 
+  lcd.setCursor(15, 0);
+  lcd.print((char)selectedJob);
+
+  // lcd.cursor();
+  lcd.blink();
+
+  lcd.setCursor(0, 0);
   lcd.print("Strips:");
   lcd.setCursor(0, 1);
   lcd.print("Length:");
   uint16_t strips = getInput(&lcd, 7, 0, 255);
+  if (strips == 0xffff) return;
   uint16_t length = getInput(&lcd, 7, 1, 10000);
+  if (length == 0xffff) return;
+
+  // lcd.noCursor();
+  lcd.noBlink();
 
   runJob(&stepper, &lcd, strips, length);
 
@@ -74,10 +104,12 @@ void loop() {
   delay(500);
 }
 
+void changeSelectedJob(char job) { selectedJob = (jobNumber)job; }
+
 uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
                   const uint8_t lcdCol, const uint16_t maxInput) {
   char key = keypad.getKey();
-  uint8_t charsPrinted;
+  uint8_t charsPrinted = 0;
   uint16_t input = 0;
 
   lcd->setCursor(lcdRow, lcdCol);
@@ -86,7 +118,15 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
     switch (key) {
       case NO_KEY:
         break;
-
+      case 'A':
+      case 'B':
+      case 'C':
+      case 'D':
+        if (key != selectedJob) {
+          changeSelectedJob(key);
+          return 0xffff;
+        }
+        break;
       case '0':
       case '1':
       case '2':
@@ -97,23 +137,27 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
       case '7':
       case '8':
       case '9':
-        if (!(input * 10 + (key - '0') > maxInput)) {
+        if (!(input * 10 + (key - '0') > maxInput) &&
+            !((input * 10 + (key - '0')) == 0)) {
           input = input * 10 + (key - '0');
           lcd->print(key);
           charsPrinted++;
           Serial.println(input);
         }
         break;
-
       case '*':
-        input = 0;
-        for (uint8_t i = 0; i < charsPrinted; i++) {
-          lcd->setCursor(lcdRow + i, lcdCol);
-          lcd->print(' ');
+        if (input == 0)
+          return 0xffff;
+        else {
+          input = 0;
+          for (uint8_t i = 0; i < charsPrinted; i++) {
+            lcd->setCursor(lcdRow + i, lcdCol);
+            lcd->print(' ');
+          }
+          lcd->setCursor(lcdRow, lcdCol);
+          charsPrinted = 0;
+          Serial.println("");
         }
-        lcd->setCursor(lcdRow, lcdCol);
-        charsPrinted = 0;
-        Serial.println("");
         break;
     }
     key = keypad.getKey();
@@ -133,11 +177,12 @@ void servoCut() {
   servo.write(0);
 }
 
-void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips, uint16_t length) {
+void runJob(AccelStepper* stepper, LiquidCrystal* lcd, uint8_t strips,
+            uint16_t length) {
   for (uint8_t i = 0; i < strips; i++) {
     lcd->clear();
     lcd->setCursor(0, 0);
-    lcd->print(i+1);
+    lcd->print(i + 1);
     lcd->print("/");
     lcd->print(strips);
 
