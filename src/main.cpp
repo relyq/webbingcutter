@@ -4,6 +4,7 @@
 #include <LiquidCrystal.h>
 #include <Servo.h>
 
+#define VERSION "V0.3"
 #define DEBUG
 
 #ifdef DEBUG
@@ -59,6 +60,8 @@ void servoCut(Servo* servo);
 void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
             stripJob job);
 uint16_t mmToSteps(uint16_t millimeters);
+uint8_t setJob(LiquidCrystal* lcd, stripJob* job);
+void printJob(LiquidCrystal* lcd, stripJob job);
 
 void setup() {
   DEBUG_BEGIN(9600);
@@ -77,13 +80,15 @@ void setup() {
 
   keypad.setDebounceTime(100);
 
-  lcd.print("WCUT V0.2");
+  lcd.print("WCUT ");
+  lcd.print(VERSION);
   lcd.setCursor(0, 1);
   lcd.print("Starting...");
-  DEBUG_PRINTLN("WCUT V0.2");
+  DEBUG_PRINTLN("WCUT ");
+  DEBUG_PRINTLN(VERSION);
   DEBUG_PRINTLN("Starting...");
 
-  delay(250);
+  delay(500);
   lcd.clear();
 }
 
@@ -93,161 +98,67 @@ void loop() {
     jobs[i].id = 'A' + i;
   }
 
-  lcd.clear();
-
-  lcd.setCursor(15, 0);
-  lcd.print(jobs[selectedJob].id);
-
-  // lcd.cursor();
-  lcd.blink();
-
-  // for(uint8_t i = 0; i < totalJobs; i++){
-  //   setJob(&lcd, jobs[selectedJob]);
-  // }
-
-  lcd.setCursor(0, 0);
-  lcd.print("Strips:");
-  lcd.setCursor(0, 1);
-  lcd.print("Length:");
-  if (jobs[selectedJob].strips != 0 && jobs[selectedJob].length != 0) {
-    lcd.setCursor(7, 0);
-    lcd.print(jobs[selectedJob].strips);
-    lcd.setCursor(7, 1);
-    lcd.print(jobs[selectedJob].length);
-  }
-
-  uint16_t strips = getInput(&lcd, 7, 0, jobs[selectedJob].strips, 255);
-  if (strips >= 0x7fff) {
-    uint8_t lastJob = selectedJob;
-    switch (strips) {
-      case 0x7fff:
-        selectedJob = 0;
-        break;
-      case 0x8000:
-        selectedJob = 1;
-        break;
-      case 0x8001:
-        selectedJob = 2;
-        break;
-      case 0x8002:
-        selectedJob = 3;
-        break;
-      case 0xffff:  // return to previous
-        strips = 0;
-        return;
-        break;
+  while (selectedJob < totalJobs) {
+    if (setJob(&lcd, &jobs[selectedJob])) {
+      continue;  // dont go to next job
     }
-    if (selectedJob != lastJob) {
-      return;
-    }
-  }
-  jobs[selectedJob].strips = strips;
-  lcd.setCursor(7, 0);
-  lcd.print(jobs[selectedJob].strips);
-
-  uint16_t length = getInput(&lcd, 7, 1, jobs[selectedJob].length, 10000);
-  if (length >= 0x7fff) {
-    uint8_t lastJob = selectedJob;
-    switch (length) {
-      case 0x7fff:
-        selectedJob = 0;
-        break;
-      case 0x8000:
-        selectedJob = 1;
-        break;
-      case 0x8001:
-        selectedJob = 2;
-        break;
-      case 0x8002:
-        selectedJob = 3;
-        break;
-      case 0xffff:  // return to previous
-        length = 0;
-        return;
-        break;
-    }
-    if (selectedJob != lastJob) {
-      return;
-    }
-  }
-  jobs[selectedJob].length = length;
-  lcd.setCursor(7, 1);
-  lcd.print(jobs[selectedJob].length);
-
-  if (selectedJob != totalJobs - 1) {
     selectedJob++;
-    return;
   }
 
-  // lcd.noCursor();
-  lcd.noBlink();
+  uint16_t confirmJobs;
+  while (confirmJobs != 0) {
+    lcd.clear();
+    printJob(&lcd, jobs[0]);
+    lcd.setCursor(0, 1);
+    printJob(&lcd, jobs[1]);
 
-  lcd.clear();
-  lcd.print(jobs[0].id);
-  lcd.print(": ");
-  lcd.print(jobs[0].strips);
-  lcd.print('x');
-  lcd.print(jobs[0].length);
-  lcd.print("mm");
-  lcd.setCursor(0, 1);
-  lcd.print(jobs[1].id);
-  lcd.print(": ");
-  lcd.print(jobs[1].strips);
-  lcd.print('x');
-  lcd.print(jobs[1].length);
-  lcd.print("mm");
-
-  uint16_t confirmJobs = getInput(&lcd, 16, 2, 0, 0);
-  if (confirmJobs >= 0x7fff) {
-    switch (confirmJobs) {
-      case 0x7fff:
-        selectedJob = 0;
-        break;
-      case 0x8000:
-        selectedJob = 1;
-        break;
-      case 0x8001:
-        selectedJob = 2;
-        break;
-      case 0x8002:
-        selectedJob = 3;
-        break;
+    confirmJobs = getInput(&lcd, 16, 2, 0, 0);
+    if (confirmJobs >= 0x7fff && confirmJobs != 0xffff) {
+      switch (confirmJobs) {
+        case 0x7fff:
+          selectedJob = 0;
+          break;
+        case 0x8000:
+          selectedJob = 1;
+          break;
+        case 0x8001:
+          selectedJob = 2;
+          break;
+        case 0x8002:
+          selectedJob = 3;
+          break;
+      }
+      setJob(&lcd, &jobs[selectedJob]);
+      continue;
     }
-    return;
-  }
 
-  lcd.clear();
-  lcd.print(jobs[2].id);
-  lcd.print(": ");
-  lcd.print(jobs[2].strips);
-  lcd.print('x');
-  lcd.print(jobs[2].length);
-  lcd.print("mm");
-  lcd.setCursor(0, 1);
-  lcd.print(jobs[3].id);
-  lcd.print(": ");
-  lcd.print(jobs[3].strips);
-  lcd.print('x');
-  lcd.print(jobs[3].length);
-  lcd.print("mm");
+    lcd.clear();
+    printJob(&lcd, jobs[2]);
+    lcd.setCursor(0, 1);
+    printJob(&lcd, jobs[3]);
 
-  confirmJobs = getInput(&lcd, 16, 2, 0, 0);
-  if (confirmJobs >= 0x7fff) {
-    switch (confirmJobs) {
-      case 0x7fff:
-        selectedJob = 0;
-        break;
-      case 0x8000:
-        selectedJob = 1;
-        break;
-      case 0x8001:
-        selectedJob = 2;
-        break;
-      case 0x8002:
-        selectedJob = 3;
-        break;
+    confirmJobs = getInput(&lcd, 16, 2, 0, 0);
+    if (confirmJobs >= 0x7fff) {
+      switch (confirmJobs) {
+        case 0x7fff:
+          selectedJob = 0;
+          break;
+        case 0x8000:
+          selectedJob = 1;
+          break;
+        case 0x8001:
+          selectedJob = 2;
+          break;
+        case 0x8002:
+          selectedJob = 3;
+          break;
+        case 0xffff:
+          continue;
+          break;
+      }
+      setJob(&lcd, &jobs[selectedJob]);
+      continue;
     }
-    return;
   }
 
   for (uint8_t i = 0; i < totalJobs; i++) {
@@ -394,4 +305,97 @@ uint8_t intDigits(uint16_t n) {
   if (n < 1000) return 3;
   if (n < 10000) return 4;
   if (n < 100000) return 5;
+}
+
+uint8_t setJob(LiquidCrystal* lcd, stripJob* job) {
+  lcd->clear();
+
+  // lcd.cursor();
+  lcd->blink();
+
+  lcd->setCursor(15, 0);
+  lcd->print(job->id);
+
+  lcd->setCursor(0, 0);
+  lcd->print("Strips:");
+  lcd->setCursor(0, 1);
+  lcd->print("Length:");
+  if (job->strips != 0 && job->length != 0) {
+    lcd->setCursor(7, 0);
+    lcd->print(job->strips);
+    lcd->setCursor(7, 1);
+    lcd->print(job->length);
+  }
+
+  uint16_t strips = getInput(lcd, 7, 0, job->strips, 255);
+  if (strips >= 0x7fff) {
+    uint8_t lastJob = selectedJob;
+    switch (strips) {
+      case 0x7fff:
+        selectedJob = 0;
+        break;
+      case 0x8000:
+        selectedJob = 1;
+        break;
+      case 0x8001:
+        selectedJob = 2;
+        break;
+      case 0x8002:
+        selectedJob = 3;
+        break;
+      case 0xffff:  // return to previous
+        job->strips = 0;
+        return 1;
+        break;
+    }
+    if (selectedJob != lastJob) {
+      return 1;
+    }
+  }
+  job->strips = strips;
+  lcd->setCursor(7, 0);
+  lcd->print(job->strips);
+
+  uint16_t length = getInput(lcd, 7, 1, job->length, 10000);
+  if (length >= 0x7fff) {
+    uint8_t lastJob = selectedJob;
+    switch (length) {
+      case 0x7fff:
+        selectedJob = 0;
+        break;
+      case 0x8000:
+        selectedJob = 1;
+        break;
+      case 0x8001:
+        selectedJob = 2;
+        break;
+      case 0x8002:
+        selectedJob = 3;
+        break;
+      case 0xffff:  // return to previous
+        job->length = 0;
+        return 1;
+        break;
+    }
+    if (selectedJob != lastJob) {
+      return 1;
+    }
+  }
+  job->length = length;
+  lcd->setCursor(7, 1);
+  lcd->print(job->length);
+
+  // lcd.noCursor();
+  lcd->noBlink();
+
+  return 0;
+}
+
+void printJob(LiquidCrystal* lcd, stripJob job) {
+  lcd->print(job.id);
+  lcd->print(": ");
+  lcd->print(job.strips);
+  lcd->print('x');
+  lcd->print(job.length);
+  lcd->print("mm");
 }
