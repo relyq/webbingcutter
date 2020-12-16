@@ -51,8 +51,10 @@ AccelStepper stepper(AccelStepper::DRIVER, 2, 3);  // step, dir
 
 Servo servo;
 
+uint8_t intDigits(uint16_t n);
 uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
-                  const uint8_t lcdCol, const uint16_t maxInput);
+                  const uint8_t lcdCol, uint16_t prevInput,
+                  const uint16_t maxInput);
 void servoCut(Servo* servo);
 void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
             stripJob job);
@@ -99,6 +101,10 @@ void loop() {
   // lcd.cursor();
   lcd.blink();
 
+  // for(uint8_t i = 0; i < totalJobs; i++){
+  //   setJob(&lcd, jobs[selectedJob]);
+  // }
+
   lcd.setCursor(0, 0);
   lcd.print("Strips:");
   lcd.setCursor(0, 1);
@@ -110,14 +116,60 @@ void loop() {
     lcd.print(jobs[selectedJob].length);
   }
 
-  uint16_t strips = getInput(&lcd, 7, 0, 255);
-  if (strips == 0xffff) return;
+  uint16_t strips = getInput(&lcd, 7, 0, jobs[selectedJob].strips, 255);
+  if (strips >= 0x7fff) {
+    uint8_t lastJob = selectedJob;
+    switch (strips) {
+      case 0x7fff:
+        selectedJob = 0;
+        break;
+      case 0x8000:
+        selectedJob = 1;
+        break;
+      case 0x8001:
+        selectedJob = 2;
+        break;
+      case 0x8002:
+        selectedJob = 3;
+        break;
+      case 0xffff:  // return to previous
+        strips = 0;
+        return;
+        break;
+    }
+    if (selectedJob != lastJob) {
+      return;
+    }
+  }
   jobs[selectedJob].strips = strips;
   lcd.setCursor(7, 0);
   lcd.print(jobs[selectedJob].strips);
 
-  uint16_t length = getInput(&lcd, 7, 1, 10000);
-  if (length == 0xffff) return;
+  uint16_t length = getInput(&lcd, 7, 1, jobs[selectedJob].length, 10000);
+  if (length >= 0x7fff) {
+    uint8_t lastJob = selectedJob;
+    switch (length) {
+      case 0x7fff:
+        selectedJob = 0;
+        break;
+      case 0x8000:
+        selectedJob = 1;
+        break;
+      case 0x8001:
+        selectedJob = 2;
+        break;
+      case 0x8002:
+        selectedJob = 3;
+        break;
+      case 0xffff:  // return to previous
+        length = 0;
+        return;
+        break;
+    }
+    if (selectedJob != lastJob) {
+      return;
+    }
+  }
   jobs[selectedJob].length = length;
   lcd.setCursor(7, 1);
   lcd.print(jobs[selectedJob].length);
@@ -130,7 +182,73 @@ void loop() {
   // lcd.noCursor();
   lcd.noBlink();
 
-  if (getInput(&lcd, 16, 2, 0) == 0xffff) return;
+  lcd.clear();
+  lcd.print(jobs[0].id);
+  lcd.print(": ");
+  lcd.print(jobs[0].strips);
+  lcd.print('x');
+  lcd.print(jobs[0].length);
+  lcd.print("mm");
+  lcd.setCursor(0, 1);
+  lcd.print(jobs[1].id);
+  lcd.print(": ");
+  lcd.print(jobs[1].strips);
+  lcd.print('x');
+  lcd.print(jobs[1].length);
+  lcd.print("mm");
+
+  uint16_t confirmJobs = getInput(&lcd, 16, 2, 0, 0);
+  if (confirmJobs >= 0x7fff) {
+    switch (confirmJobs) {
+      case 0x7fff:
+        selectedJob = 0;
+        break;
+      case 0x8000:
+        selectedJob = 1;
+        break;
+      case 0x8001:
+        selectedJob = 2;
+        break;
+      case 0x8002:
+        selectedJob = 3;
+        break;
+    }
+    return;
+  }
+
+  lcd.clear();
+  lcd.print(jobs[2].id);
+  lcd.print(": ");
+  lcd.print(jobs[2].strips);
+  lcd.print('x');
+  lcd.print(jobs[2].length);
+  lcd.print("mm");
+  lcd.setCursor(0, 1);
+  lcd.print(jobs[3].id);
+  lcd.print(": ");
+  lcd.print(jobs[3].strips);
+  lcd.print('x');
+  lcd.print(jobs[3].length);
+  lcd.print("mm");
+
+  confirmJobs = getInput(&lcd, 16, 2, 0, 0);
+  if (confirmJobs >= 0x7fff) {
+    switch (confirmJobs) {
+      case 0x7fff:
+        selectedJob = 0;
+        break;
+      case 0x8000:
+        selectedJob = 1;
+        break;
+      case 0x8001:
+        selectedJob = 2;
+        break;
+      case 0x8002:
+        selectedJob = 3;
+        break;
+    }
+    return;
+  }
 
   for (uint8_t i = 0; i < totalJobs; i++) {
     runJob(&lcd, &stepper, &servo, jobs[i]);
@@ -143,40 +261,30 @@ void loop() {
 }
 
 uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
-                  const uint8_t lcdCol, const uint16_t maxInput) {
+                  const uint8_t lcdCol, const uint16_t prevInput,
+                  const uint16_t maxInput) {
   char key = keypad.getKey();
-  uint8_t charsPrinted = 0;
-  uint16_t input = 0;
+  uint16_t input = prevInput;
+  uint8_t charsPrinted = intDigits(input);
 
   lcd->setCursor(lcdRow, lcdCol);
+  lcd->print(input);
 
   while (key != '#') {
     switch (key) {
       case NO_KEY:
         break;
       case 'A':
-        if (selectedJob != 0) {
-          selectedJob = 0;
-          return 0xffff;
-        }
+        return 0x7fff;
         break;
       case 'B':
-        if (selectedJob != 1) {
-          selectedJob = 1;
-          return 0xffff;
-        }
+        return 0x8000;
         break;
       case 'C':
-        if (selectedJob != 2) {
-          selectedJob = 2;
-          return 0xffff;
-        }
+        return 0x8001;
         break;
       case 'D':
-        if (selectedJob != 3) {
-          selectedJob = 3;
-          return 0xffff;
-        }
+        return 0x8002;
         break;
       case '0':
       case '1':
@@ -188,7 +296,13 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
       case '7':
       case '8':
       case '9':
-        if (!(input * 10 + (key - '0') > maxInput) && charsPrinted < 5) {
+        if (!(input * 10 + (key - '0') > maxInput) &&
+            (input * 10 + (key - '0') != 0)) {
+          if (input == 0) {
+            lcd->setCursor(lcdRow, lcdCol);
+            lcd->print(' ');
+            lcd->setCursor(lcdRow, lcdCol);
+          }
           input = input * 10 + (key - '0');
           lcd->print(key);
           charsPrinted++;
@@ -206,7 +320,8 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
             lcd->print(' ');
           }
           lcd->setCursor(lcdRow, lcdCol);
-          charsPrinted = 0;
+          lcd->print(input);
+          charsPrinted = 1;
           DEBUG_PRINTLN("");
         }
         break;
@@ -270,4 +385,13 @@ uint16_t mmToSteps(uint16_t millimeters) {
   const float stepsPerMM = motorStepsPerRevolution / (PI * gearDiameterMM);
 
   return stepsPerMM * millimeters;
+}
+
+uint8_t intDigits(uint16_t n) {
+  //  if (n == 0) return 0;
+  if (n < 10) return 1;
+  if (n < 100) return 2;
+  if (n < 1000) return 3;
+  if (n < 10000) return 4;
+  if (n < 100000) return 5;
 }
