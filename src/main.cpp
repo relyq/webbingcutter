@@ -1,10 +1,11 @@
 #include <AccelStepper.h>
 #include <Arduino.h>
+#include <EEPROM.h>
 #include <Keypad.h>
 #include <LiquidCrystal.h>
 #include <Servo.h>
 
-#define VERSION "V0.3"
+#define VERSION "V0.4"
 #define DEBUG
 
 #ifdef DEBUG
@@ -93,7 +94,13 @@ void setup() {
 }
 
 void loop() {
-  static stripJob jobs[totalJobs];
+  stripJob jobs[totalJobs];
+
+  EEPROM.get(10, jobs[0]);
+  EEPROM.get(20, jobs[1]);
+  EEPROM.get(30, jobs[2]);
+  EEPROM.get(40, jobs[3]);
+
   for (uint8_t i = 0; i < totalJobs; i++) {
     jobs[i].id = 'A' + i;
   }
@@ -165,10 +172,15 @@ void loop() {
     runJob(&lcd, &stepper, &servo, jobs[i]);
   }
 
+  EEPROM.put(10, jobs[0]);
+  EEPROM.put(20, jobs[1]);
+  EEPROM.put(30, jobs[2]);
+  EEPROM.put(40, jobs[3]);
+
   selectedJob = 0;
   lcd.clear();
   lcd.print("Done.");
-  delay(1000);
+  delay(2000);
 }
 
 uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
@@ -329,7 +341,6 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job) {
 
   uint16_t strips = getInput(lcd, 7, 0, job->strips, 255);
   if (strips >= 0x7fff) {
-    uint8_t lastJob = selectedJob;
     switch (strips) {
       case 0x7fff:
         selectedJob = 0;
@@ -345,12 +356,9 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job) {
         break;
       case 0xffff:  // return to previous
         job->strips = 0;
-        return 1;
         break;
     }
-    if (selectedJob != lastJob) {
-      return 1;
-    }
+    return 1;
   }
   job->strips = strips;
   lcd->setCursor(7, 0);
@@ -358,7 +366,6 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job) {
 
   uint16_t length = getInput(lcd, 7, 1, job->length, 10000);
   if (length >= 0x7fff) {
-    uint8_t lastJob = selectedJob;
     switch (length) {
       case 0x7fff:
         selectedJob = 0;
@@ -374,12 +381,9 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job) {
         break;
       case 0xffff:  // return to previous
         job->length = 0;
-        return 1;
         break;
     }
-    if (selectedJob != lastJob) {
-      return 1;
-    }
+    return 1;
   }
   job->length = length;
   lcd->setCursor(7, 1);
