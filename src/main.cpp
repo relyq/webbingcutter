@@ -18,7 +18,6 @@
 #define DEBUG_PRINT(x)
 #define DEBUG_PRINTDEC(x)
 #define DEBUG_PRINTLN(x)
-#define DEBUG_READ()
 #endif
 
 const byte ROWS = 4;
@@ -74,6 +73,19 @@ void setup() {
   servo.attach(servoPin);
   servo.write(0);
 
+  // first time setup
+  uint16_t magic_0_4 = 48343;
+  uint16_t magic_buffer;
+  EEPROM.get(0, magic_buffer);
+  if (magic_0_4 != magic_buffer) {
+    DEBUG_PRINTLN("executing first time initialization");
+    stripJob emptyJob;
+    for (size_t i = 0; i < totalJobs; i++) {
+      emptyJob.id = 'A' + i;
+      EEPROM.put(10 * (i + 1), emptyJob);
+    }
+  }
+
   // 2500
   stepper.setMaxSpeed(500);
   stepper.setSpeed(500);
@@ -100,10 +112,6 @@ void loop() {
   EEPROM.get(20, jobs[1]);
   EEPROM.get(30, jobs[2]);
   EEPROM.get(40, jobs[3]);
-
-  for (uint8_t i = 0; i < totalJobs; i++) {
-    jobs[i].id = 'A' + i;
-  }
 
   while (selectedJob < totalJobs) {
     if (setJob(&lcd, &jobs[selectedJob])) {
