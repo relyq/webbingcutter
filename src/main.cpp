@@ -366,18 +366,24 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
   switch (screen) {
     // strips-length
     case 0: {
+      const char* str_strips = "Cantidad: ";
+      const char* str_length = "Largo: ";
+      const size_t str_strips_len = strlen(str_strips);
+      const size_t str_length_len = strlen(str_length);
+
       lcd->setCursor(0, 0);
-      lcd->print("Cantidad:");
+      lcd->print(str_strips);
       lcd->setCursor(0, 1);
-      lcd->print("Largo:");
+      lcd->print(str_length);
+
       if (job->strips != 0 && job->length != 0) {
-        lcd->setCursor(10, 0);
+        lcd->setCursor(str_strips_len, 0);
         lcd->print(job->strips);
-        lcd->setCursor(7, 1);
+        lcd->setCursor(str_length_len, 1);
         lcd->print(job->length);
       }
 
-      uint16_t strips = getInput(lcd, 7, 0, job->strips, 255);
+      uint16_t strips = getInput(lcd, str_strips_len, 0, job->strips, 255);
       if (strips >= 0x7fff) {
         switch (strips) {
           case 0x7fff:
@@ -399,10 +405,10 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
         return 1;
       }
       job->strips = strips;
-      lcd->setCursor(7, 0);
+      lcd->setCursor(str_strips_len, 0);
       lcd->print(job->strips);
 
-      uint16_t length = getInput(lcd, 7, 1, job->length, 10000);
+      uint16_t length = getInput(lcd, str_length_len, 1, job->length, 10000);
       if (length >= 0x7fff) {
         switch (length) {
           case 0x7fff:
@@ -424,21 +430,24 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
         return 1;
       }
       job->length = length;
-      lcd->setCursor(7, 1);
+      lcd->setCursor(str_length_len, 1);
       lcd->print(job->length);
 
       break;
     }
     case 1: {
+      const char* str_maxSpeed = "Vel. Max: ";
+      const size_t str_maxSpeed_len = strlen(str_maxSpeed);
       lcd->setCursor(0, 0);
-      lcd->print("Vel. Max:");
+      lcd->print(str_maxSpeed);
 
       if (stepper_config->maxSpeed != 0) {
-        lcd->setCursor(10, 0);
+        lcd->setCursor(str_maxSpeed_len, 0);
         lcd->print(stepper_config->maxSpeed);
       }
 
-      uint16_t maxSpeed = getInput(lcd, 7, 0, stepper_config->maxSpeed, 255);
+      uint16_t maxSpeed =
+          getInput(lcd, str_maxSpeed_len, 0, stepper_config->maxSpeed, 5000);
       if (maxSpeed >= 0x7fff) {
         switch (maxSpeed) {
           case 0x7fff:
@@ -460,21 +469,24 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
         return 1;
       }
       stepper_config->maxSpeed = maxSpeed;
-      lcd->setCursor(7, 0);
+      lcd->setCursor(str_maxSpeed_len, 0);
       lcd->print(stepper_config->maxSpeed);
 
       break;
     }
     case 2: {
+      const char* str_accel = "Acel.: ";
+      const size_t str_accel_len = strlen(str_accel);
       lcd->setCursor(0, 0);
       lcd->print("Acel.:");
 
       if (stepper_config->accel != 0) {
-        lcd->setCursor(7, 0);
+        lcd->setCursor(str_accel_len, 0);
         lcd->print(stepper_config->accel);
       }
 
-      uint16_t accel = getInput(lcd, 7, 0, stepper_config->accel, 255);
+      uint16_t accel =
+          getInput(lcd, str_accel_len, 0, stepper_config->accel, 2000);
       if (accel >= 0x7fff) {
         switch (accel) {
           case 0x7fff:
@@ -496,21 +508,24 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
         return 1;
       }
       stepper_config->accel = accel;
-      lcd->setCursor(7, 0);
+      lcd->setCursor(str_accel_len, 0);
       lcd->print(stepper_config->accel);
 
       break;
     }
     case 3: {
+      const char* str_dir = "Dir: ";
+      const size_t str_dir_len = strlen(str_dir);
       lcd->setCursor(0, 0);
       lcd->print("Dir:");
 
       if (stepper_config->dir != 0) {
-        lcd->setCursor(5, 0);
+        lcd->setCursor(str_dir_len, 0);
         lcd->print(stepper_config->dir);
       }
 
-      uint16_t dir = getInput(lcd, 7, 0, (uint16_t)stepper_config->dir, 255);
+      uint16_t dir =
+          getInput(lcd, str_dir_len, 0, (uint16_t)stepper_config->dir, 1);
       if (dir >= 0x7fff) {
         switch (dir) {
           case 0x7fff:
@@ -532,7 +547,7 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
         return 1;
       }
       stepper_config->dir = (bool)dir;
-      lcd->setCursor(5, 0);
+      lcd->setCursor(str_dir_len, 0);
       lcd->print(stepper_config->dir);
 
       break;
