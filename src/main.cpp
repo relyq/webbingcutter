@@ -30,13 +30,20 @@ char KPKeys[ROWS][COLS] = {{'1', '2', '3', 'A'},
 byte rowPins[ROWS] = {11, 10, 9, 8};
 byte colPins[COLS] = {7, 6, 5, 4};
 
-const uint8_t totalJobs = 4;
-uint8_t selectedJob = 0;
+const uint8_t totalScreens = 4;
+uint8_t selectedScreen = 0;
 
 struct stripJob {
   char id;
   uint16_t strips = 0;
   uint16_t length = 0;
+};
+
+struct stepperConfig {
+  uint16_t maxSpeed;
+  uint16_t speed;
+  uint16_t accel;
+  bool dir;
 };
 
 const uint8_t servoPin = 12;
@@ -58,10 +65,13 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
                   const uint16_t maxInput);
 void servoCut(Servo* servo);
 void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
-            stripJob job);
+            stripJob job, stepperConfig stepper_config);
 uint16_t mmToSteps(uint16_t millimeters);
-uint8_t setJob(LiquidCrystal* lcd, stripJob* job);
-void printJob(LiquidCrystal* lcd, stripJob job);
+uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
+               uint8_t screen);
+void printSettings(LiquidCrystal* lcd, stripJob job);
+void printSettings(LiquidCrystal* lcd, stepperConfig stepper_config,
+                   uint8_t config);
 
 void setup() {
   DEBUG_BEGIN(9600);
@@ -80,10 +90,14 @@ void setup() {
   if (magic_0_4 != magic_buffer) {
     DEBUG_PRINTLN("executing first time initialization");
     stripJob emptyJob;
-    for (size_t i = 0; i < totalJobs; i++) {
-      emptyJob.id = 'A' + i;
-      EEPROM.put(10 * (i + 1), emptyJob);
-    }
+    stepperConfig defaultConfig;
+    emptyJob.id = 'A';
+    defaultConfig.maxSpeed = 500;
+    defaultConfig.speed = 500;
+    defaultConfig.accel = 100;
+    defaultConfig.dir = 0;
+    EEPROM.put(10, emptyJob);
+    EEPROM.put(20, defaultConfig);
   }
 
   // 2500
@@ -106,91 +120,90 @@ void setup() {
 }
 
 void loop() {
-  stripJob jobs[totalJobs];
+  stripJob job;
+  stepperConfig stepper_config;
 
-  EEPROM.get(10, jobs[0]);
-  EEPROM.get(20, jobs[1]);
-  EEPROM.get(30, jobs[2]);
-  EEPROM.get(40, jobs[3]);
+  EEPROM.get(10, job);
+  EEPROM.get(20, stepper_config);
 
-  while (selectedJob < totalJobs) {
-    if (setJob(&lcd, &jobs[selectedJob])) {
+  while (selectedScreen < totalScreens) {
+    if (setJob(&lcd, &job, &stepper_config, selectedScreen)) {
       continue;  // dont go to next job
     }
-    selectedJob++;
+    selectedScreen++;
   }
 
+  // mostrar las opciones configuradas y confirmarlas o cambiarlas
   uint16_t confirmJobs;
   while (confirmJobs != 0) {
     lcd.clear();
-    printJob(&lcd, jobs[0]);
+    printSettings(&lcd, job);
     lcd.setCursor(0, 1);
-    printJob(&lcd, jobs[1]);
+    printSettings(&lcd, stepper_config, 0);
 
     confirmJobs = getInput(&lcd, 16, 2, 0, 0);
     if (confirmJobs >= 0x7fff && confirmJobs != 0xffff) {
       switch (confirmJobs) {
         case 0x7fff:
-          selectedJob = 0;
+          selectedScreen = 0;
           break;
         case 0x8000:
-          selectedJob = 1;
+          selectedScreen = 1;
           break;
         case 0x8001:
-          selectedJob = 2;
+          selectedScreen = 2;
           break;
         case 0x8002:
-          selectedJob = 3;
+          selectedScreen = 3;
           break;
       }
-      setJob(&lcd, &jobs[selectedJob]);
+      setJob(&lcd, &job, &stepper_config, selectedScreen);
       continue;
     }
 
     lcd.clear();
-    printJob(&lcd, jobs[2]);
+    printSettings(&lcd, stepper_config, 1);
     lcd.setCursor(0, 1);
-    printJob(&lcd, jobs[3]);
+    printSettings(&lcd, stepper_config, 2);
 
     confirmJobs = getInput(&lcd, 16, 2, 0, 0);
     if (confirmJobs >= 0x7fff) {
       switch (confirmJobs) {
         case 0x7fff:
-          selectedJob = 0;
+          selectedScreen = 0;
           break;
         case 0x8000:
-          selectedJob = 1;
+          selectedScreen = 1;
           break;
         case 0x8001:
-          selectedJob = 2;
+          selectedScreen = 2;
           break;
         case 0x8002:
-          selectedJob = 3;
+          selectedScreen = 3;
           break;
         case 0xffff:
           continue;
           break;
       }
-      setJob(&lcd, &jobs[selectedJob]);
+      setJob(&lcd, &job, &stepper_config, selectedScreen);
       continue;
     }
   }
 
-  for (uint8_t i = 0; i < totalJobs; i++) {
-    runJob(&lcd, &stepper, &servo, jobs[i]);
-  }
+  runJob(&lcd, &stepper, &servo, job, stepper_config);
 
-  EEPROM.put(10, jobs[0]);
-  EEPROM.put(20, jobs[1]);
-  EEPROM.put(30, jobs[2]);
-  EEPROM.put(40, jobs[3]);
+  EEPROM.put(10, job);
+  EEPROM.put(20, stepper_config);
 
-  selectedJob = 0;
+  selectedScreen = 0;
   lcd.clear();
   lcd.print("Done.");
   delay(2000);
 }
 
+// lee un stream de numeros hasta presionar #
+// * del
+// las letras seleccionan la pantalla
 uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
                   const uint8_t lcdCol, const uint16_t prevInput,
                   const uint16_t maxInput) {
@@ -226,7 +239,8 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
       case '6':
       case '7':
       case '8':
-      case '9':
+      case '9': {
+        // return pressed number
         if (!(input * 10 + (key - '0') > maxInput) &&
             (input * 10 + (key - '0') != 0)) {
           if (input == 0) {
@@ -241,10 +255,12 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
           DEBUG_PRINTLN(input);
         }
         break;
-      case '*':
+      }
+      case '*': {
         if (input == 0)
           return 0xffff;
         else {
+          // del
           input = 0;
           for (uint8_t i = 0; i < charsPrinted; i++) {
             lcd->setCursor(lcdRow + i, lcdCol);
@@ -256,6 +272,7 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
           DEBUG_PRINTLN("");
         }
         break;
+      }
     }
     key = keypad.getKey();
 #ifdef DEBUG
@@ -280,8 +297,16 @@ void servoCut(Servo* servo) {
 }
 
 void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
-            stripJob job) {
+            stripJob job, stepperConfig stepper_config) {
   if (!job.strips || !job.length) return;
+
+  if (stepper_config.dir) {
+    stepper->setMaxSpeed((int16_t)stepper_config.maxSpeed * -1);
+  } else {
+    stepper->setMaxSpeed(stepper_config.maxSpeed);
+  }
+
+  stepper->setAcceleration(stepper_config.accel);
 
   for (uint8_t i = 0; i < job.strips; i++) {
     lcd->clear();
@@ -327,75 +352,192 @@ uint8_t intDigits(uint16_t n) {
   if (n < 100000) return 5;
 }
 
-uint8_t setJob(LiquidCrystal* lcd, stripJob* job) {
+// configura el trabajo
+// devuelve 1 para cambiar la pantalla
+// devuelve 0 para continuar con la siguiente opcion
+uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
+               uint8_t screen) {
   lcd->clear();
 
   // lcd.cursor();
   lcd->blink();
 
-  lcd->setCursor(15, 0);
-  lcd->print(job->id);
+  // cada caso podria ser una funcion con parametros diferentes
+  switch (screen) {
+    // strips-length
+    case 0: {
+      lcd->setCursor(0, 0);
+      lcd->print("Cantidad:");
+      lcd->setCursor(0, 1);
+      lcd->print("Largo:");
+      if (job->strips != 0 && job->length != 0) {
+        lcd->setCursor(10, 0);
+        lcd->print(job->strips);
+        lcd->setCursor(7, 1);
+        lcd->print(job->length);
+      }
 
-  lcd->setCursor(0, 0);
-  lcd->print("Strips:");
-  lcd->setCursor(0, 1);
-  lcd->print("Length:");
-  if (job->strips != 0 && job->length != 0) {
-    lcd->setCursor(7, 0);
-    lcd->print(job->strips);
-    lcd->setCursor(7, 1);
-    lcd->print(job->length);
-  }
+      uint16_t strips = getInput(lcd, 7, 0, job->strips, 255);
+      if (strips >= 0x7fff) {
+        switch (strips) {
+          case 0x7fff:
+            selectedScreen = 0;
+            break;
+          case 0x8000:
+            selectedScreen = 1;
+            break;
+          case 0x8001:
+            selectedScreen = 2;
+            break;
+          case 0x8002:
+            selectedScreen = 3;
+            break;
+          case 0xffff:  // return to previous
+            job->strips = 0;
+            break;
+        }
+        return 1;
+      }
+      job->strips = strips;
+      lcd->setCursor(7, 0);
+      lcd->print(job->strips);
 
-  uint16_t strips = getInput(lcd, 7, 0, job->strips, 255);
-  if (strips >= 0x7fff) {
-    switch (strips) {
-      case 0x7fff:
-        selectedJob = 0;
-        break;
-      case 0x8000:
-        selectedJob = 1;
-        break;
-      case 0x8001:
-        selectedJob = 2;
-        break;
-      case 0x8002:
-        selectedJob = 3;
-        break;
-      case 0xffff:  // return to previous
-        job->strips = 0;
-        break;
+      uint16_t length = getInput(lcd, 7, 1, job->length, 10000);
+      if (length >= 0x7fff) {
+        switch (length) {
+          case 0x7fff:
+            selectedScreen = 0;
+            break;
+          case 0x8000:
+            selectedScreen = 1;
+            break;
+          case 0x8001:
+            selectedScreen = 2;
+            break;
+          case 0x8002:
+            selectedScreen = 3;
+            break;
+          case 0xffff:  // return to previous
+            job->length = 0;
+            break;
+        }
+        return 1;
+      }
+      job->length = length;
+      lcd->setCursor(7, 1);
+      lcd->print(job->length);
+
+      break;
     }
-    return 1;
-  }
-  job->strips = strips;
-  lcd->setCursor(7, 0);
-  lcd->print(job->strips);
+    case 1: {
+      lcd->setCursor(0, 0);
+      lcd->print("Vel. Max:");
 
-  uint16_t length = getInput(lcd, 7, 1, job->length, 10000);
-  if (length >= 0x7fff) {
-    switch (length) {
-      case 0x7fff:
-        selectedJob = 0;
-        break;
-      case 0x8000:
-        selectedJob = 1;
-        break;
-      case 0x8001:
-        selectedJob = 2;
-        break;
-      case 0x8002:
-        selectedJob = 3;
-        break;
-      case 0xffff:  // return to previous
-        job->length = 0;
-        break;
+      if (stepper_config->maxSpeed != 0) {
+        lcd->setCursor(10, 0);
+        lcd->print(stepper_config->maxSpeed);
+      }
+
+      uint16_t maxSpeed = getInput(lcd, 7, 0, stepper_config->maxSpeed, 255);
+      if (maxSpeed >= 0x7fff) {
+        switch (maxSpeed) {
+          case 0x7fff:
+            selectedScreen = 0;
+            break;
+          case 0x8000:
+            selectedScreen = 1;
+            break;
+          case 0x8001:
+            selectedScreen = 2;
+            break;
+          case 0x8002:
+            selectedScreen = 3;
+            break;
+          case 0xffff:  // return to previous
+            stepper_config->maxSpeed = 0;
+            break;
+        }
+        return 1;
+      }
+      stepper_config->maxSpeed = maxSpeed;
+      lcd->setCursor(7, 0);
+      lcd->print(stepper_config->maxSpeed);
+
+      break;
     }
-    return 1;
+    case 2: {
+      lcd->setCursor(0, 0);
+      lcd->print("Acel.:");
+
+      if (stepper_config->accel != 0) {
+        lcd->setCursor(7, 0);
+        lcd->print(stepper_config->accel);
+      }
+
+      uint16_t accel = getInput(lcd, 7, 0, stepper_config->accel, 255);
+      if (accel >= 0x7fff) {
+        switch (accel) {
+          case 0x7fff:
+            selectedScreen = 0;
+            break;
+          case 0x8000:
+            selectedScreen = 1;
+            break;
+          case 0x8001:
+            selectedScreen = 2;
+            break;
+          case 0x8002:
+            selectedScreen = 3;
+            break;
+          case 0xffff:  // return to previous
+            stepper_config->accel = 0;
+            break;
+        }
+        return 1;
+      }
+      stepper_config->accel = accel;
+      lcd->setCursor(7, 0);
+      lcd->print(stepper_config->accel);
+
+      break;
+    }
+    case 3: {
+      lcd->setCursor(0, 0);
+      lcd->print("Dir:");
+
+      if (stepper_config->dir != 0) {
+        lcd->setCursor(5, 0);
+        lcd->print(stepper_config->dir);
+      }
+
+      uint16_t dir = getInput(lcd, 7, 0, (uint16_t)stepper_config->dir, 255);
+      if (dir >= 0x7fff) {
+        switch (dir) {
+          case 0x7fff:
+            selectedScreen = 0;
+            break;
+          case 0x8000:
+            selectedScreen = 1;
+            break;
+          case 0x8001:
+            selectedScreen = 2;
+            break;
+          case 0x8002:
+            selectedScreen = 3;
+            break;
+          case 0xffff:  // return to previous
+            stepper_config->dir = 0;
+            break;
+        }
+        return 1;
+      }
+      stepper_config->dir = (bool)dir;
+      lcd->setCursor(5, 0);
+      lcd->print(stepper_config->dir);
+
+      break;
+    }
   }
-  job->length = length;
-  lcd->setCursor(7, 1);
-  lcd->print(job->length);
 
   // lcd.noCursor();
   lcd->noBlink();
@@ -403,11 +545,40 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job) {
   return 0;
 }
 
-void printJob(LiquidCrystal* lcd, stripJob job) {
+// mostrar o el trabajo o las opciones de stepper
+void printSettings(LiquidCrystal* lcd, stripJob job) {
   lcd->print(job.id);
   lcd->print(": ");
   lcd->print(job.strips);
   lcd->print('x');
   lcd->print(job.length);
   lcd->print("mm");
+}
+
+// config - opcion a mostrar
+void printSettings(LiquidCrystal* lcd, stepperConfig stepper_config,
+                   uint8_t config) {
+  switch (config) {
+    // maxSpeed
+    case 0: {
+      lcd->print(stepper_config.maxSpeed);
+      lcd->print(" steps/s");
+      break;
+    }
+    // accel
+    case 1: {
+      lcd->print(stepper_config.accel);
+      lcd->print(" steps/s/s");
+      break;
+    }
+    // dir
+    case 2: {
+      if (stepper_config.dir) {
+        lcd->print("Reloj");
+      } else {
+        lcd->print("Contra Reloj");
+      }
+      break;
+    }
+  }
 }
