@@ -84,7 +84,7 @@ void setup() {
   servo.write(0);
 
   // first time setup
-  uint16_t magic_0_4 = 48343;
+  uint16_t magic_0_4 = 48344;
   uint16_t magic_buffer;
   EEPROM.get(0, magic_buffer);
   if (magic_0_4 != magic_buffer) {
@@ -96,6 +96,7 @@ void setup() {
     defaultConfig.speed = 500;
     defaultConfig.accel = 100;
     defaultConfig.dir = 0;
+    EEPROM.put(0, magic_0_4);
     EEPROM.put(10, emptyJob);
     EEPROM.put(20, defaultConfig);
   }
@@ -113,7 +114,7 @@ void setup() {
   lcd.print("Starting...");
   DEBUG_PRINTLN("WCUT ");
   DEBUG_PRINTLN(VERSION);
-  DEBUG_PRINTLN("Starting...");
+  DEBUG_PRINTLN("Starting...\n");
 
   delay(500);
   lcd.clear();
@@ -126,6 +127,22 @@ void loop() {
   EEPROM.get(10, job);
   EEPROM.get(20, stepper_config);
 
+  DEBUG_PRINT(F("saved job:\nstrips: "));
+  DEBUG_PRINTLN(job.strips);
+  DEBUG_PRINT(F("length: "));
+  DEBUG_PRINTLN(job.length);
+
+  DEBUG_PRINT(F("\nsaved stepper config:\nmax speed: "));
+  DEBUG_PRINTLN(stepper_config.maxSpeed);
+  DEBUG_PRINT(F("speed: "));
+  DEBUG_PRINTLN(stepper_config.speed);
+  DEBUG_PRINT(F("accel: "));
+  DEBUG_PRINTLN(stepper_config.accel);
+  DEBUG_PRINT(F("dir: "));
+  DEBUG_PRINTLN(stepper_config.dir);
+
+  DEBUG_PRINTLN(F("\nsettings (# to keep, * to clear):"));
+
   while (selectedScreen < totalScreens) {
     if (setJob(&lcd, &job, &stepper_config, selectedScreen)) {
       continue;  // dont go to next job
@@ -134,8 +151,9 @@ void loop() {
   }
 
   // mostrar las opciones configuradas y confirmarlas o cambiarlas
-  uint16_t confirmJobs;
+  uint16_t confirmJobs = 1;
   while (confirmJobs != 0) {
+    DEBUG_PRINTLN(F("\nconfirm job"));
     lcd.clear();
     printSettings(&lcd, job);
     lcd.setCursor(0, 1);
@@ -198,6 +216,7 @@ void loop() {
   selectedScreen = 0;
   lcd.clear();
   lcd.print("Done.");
+  DEBUG_PRINTLN(F("\nDone."));
   delay(2000);
 }
 
@@ -213,6 +232,7 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
 
   lcd->setCursor(lcdRow, lcdCol);
   lcd->print(input);
+  DEBUG_PRINTLN(input);
 
   while (key != '#') {
     switch (key) {
@@ -251,7 +271,7 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
           input = input * 10 + (key - '0');
           lcd->print(key);
           charsPrinted++;
-          DEBUG_PRINTLN("input: ");
+          DEBUG_PRINT("input: ");
           DEBUG_PRINTLN(input);
         }
         break;
@@ -299,36 +319,65 @@ void servoCut(Servo* servo) {
 void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
             stripJob job, stepperConfig stepper_config) {
   if (!job.strips || !job.length) return;
+  DEBUG_PRINTLN(F("STARTING JOB"));
 
-  if (stepper_config.dir) {
-    stepper->setMaxSpeed((int16_t)stepper_config.maxSpeed * -1);
-  } else {
-    stepper->setMaxSpeed(stepper_config.maxSpeed);
-  }
+  stepper->setMaxSpeed(stepper_config.maxSpeed);
 
   stepper->setAcceleration(stepper_config.accel);
 
   for (uint8_t i = 0; i < job.strips; i++) {
+    DEBUG_PRINTLN();
     lcd->clear();
     lcd->setCursor(15, 0);
     lcd->print(job.id);
+    DEBUG_PRINT(job.id);
+    DEBUG_PRINT(F(": "));
 
     lcd->setCursor(0, 0);
     lcd->print(job.length);
     lcd->print("mm");
+    DEBUG_PRINT(job.length);
+    DEBUG_PRINT(F("mm"));
+    DEBUG_PRINT(F(" "));
 
     lcd->setCursor(0, 1);
     lcd->print(i + 1);
     lcd->print('/');
     lcd->print(job.strips);
+    DEBUG_PRINT(i + 1);
+    DEBUG_PRINT(F("/"));
+    DEBUG_PRINT(job.strips);
+    DEBUG_PRINTLN();
 
-    stepper->move(mmToSteps(job.length));
+    int16_t stepsToMove = stepper_config.dir
+                              ? (int16_t)mmToSteps(job.length) * -1
+                              : (int16_t)mmToSteps(job.length);
 
+    stepper->move(stepsToMove);
+
+    unsigned long time = millis();
+    DEBUG_PRINT(F("current position: "));
+    DEBUG_PRINTLN(stepper->currentPosition());
+    DEBUG_PRINT(F("target position: "));
+    DEBUG_PRINTLN(stepper->targetPosition());
+    DEBUG_PRINT(F("distance to go: "));
+    DEBUG_PRINTLN(stepper->distanceToGo());
+    DEBUG_PRINTLN(F("---------"));
     while (stepper->distanceToGo() != 0) {
+#ifdef DEBUG
+      if ((millis() - time) > 500) {
+        DEBUG_PRINT(F("current position: "));
+        DEBUG_PRINTLN(stepper->currentPosition());
+        DEBUG_PRINT(F("target position: "));
+        DEBUG_PRINTLN(stepper->targetPosition());
+        DEBUG_PRINT(F("distance to go: "));
+        DEBUG_PRINTLN(stepper->distanceToGo());
+        DEBUG_PRINTLN(F("---------"));
+        time = millis();
+      }
+#endif
       stepper->run();
     }
-
-    servoCut(servo);
 
     delay(500);
   }
@@ -383,6 +432,7 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
         lcd->print(job->length);
       }
 
+      DEBUG_PRINT(F("strips: "));
       uint16_t strips = getInput(lcd, str_strips_len, 0, job->strips, 255);
       if (strips >= 0x7fff) {
         switch (strips) {
@@ -408,6 +458,7 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
       lcd->setCursor(str_strips_len, 0);
       lcd->print(job->strips);
 
+      DEBUG_PRINT(F("length: "));
       uint16_t length = getInput(lcd, str_length_len, 1, job->length, 10000);
       if (length >= 0x7fff) {
         switch (length) {
@@ -446,6 +497,7 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
         lcd->print(stepper_config->maxSpeed);
       }
 
+      DEBUG_PRINT(F("max speed: "));
       uint16_t maxSpeed =
           getInput(lcd, str_maxSpeed_len, 0, stepper_config->maxSpeed, 5000);
       if (maxSpeed >= 0x7fff) {
@@ -485,6 +537,7 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
         lcd->print(stepper_config->accel);
       }
 
+      DEBUG_PRINT(F("accel: "));
       uint16_t accel =
           getInput(lcd, str_accel_len, 0, stepper_config->accel, 2000);
       if (accel >= 0x7fff) {
@@ -524,6 +577,7 @@ uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
         lcd->print(stepper_config->dir);
       }
 
+      DEBUG_PRINT(F("dir: "));
       uint16_t dir =
           getInput(lcd, str_dir_len, 0, (uint16_t)stepper_config->dir, 1);
       if (dir >= 0x7fff) {
@@ -568,6 +622,12 @@ void printSettings(LiquidCrystal* lcd, stripJob job) {
   lcd->print('x');
   lcd->print(job.length);
   lcd->print("mm");
+  DEBUG_PRINT(job.id);
+  DEBUG_PRINT(F(": "));
+  DEBUG_PRINT(job.strips);
+  DEBUG_PRINT(F("x"));
+  DEBUG_PRINT(job.length);
+  DEBUG_PRINTLN(F("mm"));
 }
 
 // config - opcion a mostrar
@@ -578,12 +638,16 @@ void printSettings(LiquidCrystal* lcd, stepperConfig stepper_config,
     case 0: {
       lcd->print(stepper_config.maxSpeed);
       lcd->print(" steps/s");
+      DEBUG_PRINT(F("max speed: "));
+      DEBUG_PRINTLN(stepper_config.maxSpeed);
       break;
     }
     // accel
     case 1: {
       lcd->print(stepper_config.accel);
       lcd->print(" steps/s/s");
+      DEBUG_PRINT(F("accel: "));
+      DEBUG_PRINTLN(stepper_config.accel);
       break;
     }
     // dir
@@ -593,6 +657,8 @@ void printSettings(LiquidCrystal* lcd, stepperConfig stepper_config,
       } else {
         lcd->print("Contra Reloj");
       }
+      DEBUG_PRINT(F("dir: "));
+      DEBUG_PRINTLN(stepper_config.dir);
       break;
     }
   }
