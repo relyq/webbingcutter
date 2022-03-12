@@ -3,7 +3,6 @@
 #include <EEPROM.h>
 #include <Keypad.h>
 #include <LiquidCrystal.h>
-#include <Servo.h>
 
 #define VERSION "V0.4"
 #define DEBUG
@@ -19,6 +18,32 @@
 #define DEBUG_PRINTDEC(x)
 #define DEBUG_PRINTLN(x)
 #endif
+
+/*
+
+0 - serial
+1 - serial
+2 - stepper
+3 - stepper
+4 - keypad
+5 - keypad
+6 - keypad
+7 - keypad
+8 - keypad
+9 - keypad
+10 - keypad
+11 - keypad
+12 - emergency stop
+13
+
+A0 - lcd
+A1 - lcd
+A2 - lcd
+A3 - lcd
+A4 - lcd
+A5 - lcd
+
+*/
 
 const byte ROWS = 4;
 const byte COLS = 4;
@@ -46,8 +71,12 @@ struct stepperConfig {
   bool dir;
 };
 
-const uint8_t servoPin = 12;
-const uint8_t servoEndstop = 13;
+bool first_run = true;
+
+// emergency stop - should be an interrupt but pins 2 and 3 are in used sadge
+const uint8_t EM_STOP_PIN = 12;
+#define emStopPIN PINB
+#define emStopBIT PB4
 
 const uint8_t rs = PIN_A5, en = PIN_A4, d4 = PIN_A3, d5 = PIN_A2, d6 = PIN_A1,
               d7 = PIN_A0;
@@ -55,17 +84,17 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 Keypad keypad = Keypad(makeKeymap(KPKeys), rowPins, colPins, ROWS, COLS);
 
-AccelStepper stepper(AccelStepper::DRIVER, 2, 3);  // step, dir
+const uint8_t STEP_PIN = 2;
+const uint8_t DIR_PIN = 3;
 
-Servo servo;
+AccelStepper stepper(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);  // step, dir
 
 uint8_t intDigits(uint16_t n);
 uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
                   const uint8_t lcdCol, uint16_t prevInput,
                   const uint16_t maxInput);
-void servoCut(Servo* servo);
-void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
-            stripJob job, stepperConfig stepper_config);
+void runJob(LiquidCrystal* lcd, AccelStepper* stepper, stripJob job,
+            stepperConfig stepper_config);
 uint16_t mmToSteps(uint16_t millimeters);
 uint8_t setJob(LiquidCrystal* lcd, stripJob* job, stepperConfig* stepper_config,
                uint8_t screen);
@@ -78,10 +107,7 @@ void setup() {
 
   lcd.begin(16, 2);
 
-  pinMode(servoEndstop, INPUT_PULLUP);
-
-  servo.attach(servoPin);
-  servo.write(0);
+  pinMode(EM_STOP_PIN, INPUT_PULLUP);
 
   // first time setup
   uint16_t magic_0_4 = 48344;
@@ -143,7 +169,7 @@ void loop() {
 
   DEBUG_PRINTLN(F("\nsettings (# to keep, * to clear):"));
 
-  while (selectedScreen < totalScreens) {
+  while ((first_run) && (selectedScreen < totalScreens)) {
     if (setJob(&lcd, &job, &stepper_config, selectedScreen)) {
       continue;  // dont go to next job
     }
@@ -208,14 +234,16 @@ void loop() {
     }
   }
 
-  runJob(&lcd, &stepper, &servo, job, stepper_config);
+  runJob(&lcd, &stepper, job, stepper_config);
+
+  first_run = false;
 
   EEPROM.put(10, job);
   EEPROM.put(20, stepper_config);
 
   selectedScreen = 0;
   lcd.clear();
-  lcd.print("Done.");
+  lcd.print("Fin.");
   DEBUG_PRINTLN(F("\nDone."));
   delay(2000);
 }
@@ -305,19 +333,8 @@ uint16_t getInput(LiquidCrystal* lcd, const uint8_t lcdRow,
   return input;
 }
 
-void servoCut(Servo* servo) {
-  for (uint8_t pos = 0; pos <= 180; pos++) {
-    servo->write(pos);
-    delay(15);
-  }
-
-  while (digitalRead(servoEndstop)) {
-  }
-  servo->write(0);
-}
-
-void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
-            stripJob job, stepperConfig stepper_config) {
+void runJob(LiquidCrystal* lcd, AccelStepper* stepper, stripJob job,
+            stepperConfig stepper_config) {
   if (!job.strips || !job.length) return;
   DEBUG_PRINTLN(F("STARTING JOB"));
 
@@ -376,6 +393,13 @@ void runJob(LiquidCrystal* lcd, AccelStepper* stepper, Servo* servo,
         time = millis();
       }
 #endif
+      if (!(emStopPIN & (1 << emStopBIT))) {
+        lcd->clear();
+        lcd->print("EMERGENCIA");
+        DEBUG_PRINTLN(F("\nEMERGENCY STOP PRESSED."));
+        delay(2000);
+        return;
+      }
       stepper->run();
     }
 
